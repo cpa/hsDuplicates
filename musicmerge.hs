@@ -1,9 +1,11 @@
 import System.Directory
 import System.FilePath
+import System.Posix.Files
 import System.IO
 import qualified Data.ByteString as BS
-import Control.Monad (liftM2)
+import Control.Monad
 import Control.Parallel
+import Data.List (tails)
 
 dir1 = "/Users/cpa/Desktop/Music"
 dir2 = "/Users/cpa/Desktop/musique"
@@ -12,9 +14,11 @@ dir4 = "/Users/cpa/fun"
 dir5 = "/Users/cpa/Documents"
 dir6 = "/Users/cpa/testouze"
 
+printListFiles :: [FilePath] -> IO ()
 printListFiles [] = return ()
 printListFiles (f:fs) = do putStrLn f
                            printListFiles fs
+                           hSetBuffering stdout LineBuffering
 
 data TreeFile = File FilePath | Dir FilePath [TreeFile]
                 deriving (Show,Eq)
@@ -26,18 +30,14 @@ partitionM p (x:xs) =  do
   (ys, ns) <- partitionM p xs
   return (if flg then (x:ys, ns) else (ys, x:ns))
 
-hasSameContents :: FilePath -> FilePath -> IO Bool
-hasSameContents f1 f2 = do 
-  -- liftM2 (==) (BS.readFile f1) (BS.readFile f2)
-  h1 <- openFile f1 ReadMode
-  h2 <- openFile f2 ReadMode
-  c1 <- BS.hGetContents h1
-  c2 <- BS.hGetContents h2
-  hClose h1
-  hClose h2
-  return (c1 == c2)
-
-removeUselessFiles = filter (\x -> x /= "." && x /= ".." && x /= ".DS_Store" && x /= "desktop.ini")
+removeUselessFiles = filter (\x -> x /= "." && x /= ".." && x /= ".DS_Store" && x /= "desktop.ini") 
+                   . filter (\x -> (takeExtension x) == ".mp3" 
+                                || (takeExtension x) == ".wav"
+                                || (takeExtension x) == ".MP3"
+                                || (takeExtension x) == ".avi"
+                                || (takeExtension x) == ".m4a" 
+                                || (takeExtension x) == ".wma"
+                                || (takeExtension x) == "")
 sanitize = removeUselessFiles
 
 createTree :: FilePath -> IO TreeFile
@@ -51,24 +51,26 @@ listFiles :: TreeFile -> [FilePath]
 listFiles (File f) = [f]
 listFiles (Dir d fs) = fs >>= listFiles
 
+sameSize :: FilePath -> FilePath -> IO Bool
+sameSize x y = do
+  sx <- getFileStatus x
+  sy <- getFileStatus y
+  return $ fileSize sx == fileSize sy
+
 toDeleteFile :: FilePath -> [FilePath] -> IO [FilePath]
 toDeleteFile _ [] = return []
-toDeleteFile x l = do 
-  h  <- openFile x ReadMode
-  s1 <- hFileSize h
+toDeleteFile x l = do
+  h   <- openFile x ReadMode
   cts <- BS.hGetContents h
   hClose h
-  aux cts l s1
-      where aux cts [] s1 = return []
-            aux cts (f:fs) s1 = do
-                     h <- openFile f ReadMode
-                     s2 <- hFileSize h
-                     if (s1 /= s2) then aux cts fs s1
-                     else do
-                       cts2 <- BS.hGetContents h
-                       hClose h
-                       if cts2 == cts then do  return [x]
-                       else aux cts fs s1
+  aux cts x =<< (filterM (sameSize x) l)
+      where aux cts x [] = return []
+            aux cts x (f:fs) = do
+                     h    <- openFile f ReadMode
+                     cts2 <- BS.hGetContents h
+                     hClose h
+                     if cts2 == cts then return [x]
+                     else aux cts x fs
 
 toDelete :: [FilePath] -> [FilePath] -> Int -> Int -> IO [FilePath]
 toDelete _ []  _ _             = return []
@@ -77,10 +79,12 @@ toDelete list1 (f:fs) cur len  = do
   let lol = toDeleteFile f list1
   liftM2 ((++)) (lol) (toDelete list1 fs (cur+1) len)
 
+main :: IO ()
 main = do
-  tree1 <- createTree dir3
-  tree2 <- createTree dir6
+  tree1 <- createTree dir2
+  tree2 <- createTree dir1
   let list1 = listFiles tree1
       list2 = listFiles tree2
   l <- toDelete list1 list2 1 (length list2)
   printListFiles l
+--  putStrLn $ (show $ length list1) ++ " " ++ (show $ length list2)
