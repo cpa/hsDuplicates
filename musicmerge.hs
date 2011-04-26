@@ -4,6 +4,8 @@ import System.Posix.Files
 import System.IO
 import qualified Data.ByteString as BS
 import Control.Monad
+import Control.Monad.Trans
+import Control.Monad.State
 
 dir2 = "/Users/cpa/Desktop/Music"
 dir1 = "/Users/cpa/Desktop/My Music"
@@ -53,7 +55,6 @@ toDeleteFile :: (FilePath,Int) -> [(FilePath,Int)] -> IO [FilePath]
 toDeleteFile _ [] = return []
 toDeleteFile (f,fsize) l = do
   let possibleMatches = [ x | (x,xsize) <- l, xsize == fsize ]
-  --  putStrLn $ (show $ length l - length possibleMatches) ++ " files pruned."
   if possibleMatches == [] then return [] else do
       h   <- openFile f ReadMode
       cts <- BS.hGetContents h
@@ -67,12 +68,15 @@ toDeleteFile (f,fsize) l = do
                  if cts2 == cts then return [x]
                  else aux cts x fs
 
-toDelete :: [(FilePath,Int)] -> [(FilePath,Int)] -> Int -> Int -> IO [FilePath]
--- toDelete _ _  200 _             = return []
-toDelete _ []  _ _             = return []
-toDelete list1 ((f,fsize):fs) cur len  = do 
-  putStrLn (show cur ++ "/" ++ show len ++ ": " ++ f)
-  liftM2 ((++)) (toDeleteFile (f,fsize) list1) (toDelete list1 fs (cur+1) len)
+
+type FilesState = StateT (Int,Int) IO
+toDelete :: [(FilePath,Int)] -> [(FilePath,Int)] -> FilesState [FilePath]
+toDelete _ [] = return $ return []
+toDelete list1 ((f,fsize):fs) = do
+  (cur,len) <- get
+  liftIO $ putStrLn (show cur ++ "/" ++ show len ++ ": " ++ f)
+  put (cur+1,len)
+  liftM2 (++) (liftIO $ toDeleteFile (f,fsize) list1) (toDelete list1 fs)
 
 addSize :: [FilePath] -> IO [(FilePath,Int)]
 addSize [] = return []
@@ -93,5 +97,5 @@ main = do
   putStrLn $ "Calculating files size from: " ++ (show dir1)
   list2 <- addSize $ listFiles tree2
   putStrLn $ "Matching files..."
-  filesToDelete <- toDelete list1 list2 1 (length list2)
+  filesToDelete <- evalStateT (toDelete list1 list2) (1,length list2)
   printListFiles filesToDelete
