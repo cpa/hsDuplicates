@@ -16,9 +16,9 @@ dir6 = "/Users/cpa/testouze"
 
 printListFiles :: [FilePath] -> IO ()
 printListFiles [] = return ()
-printListFiles (f:fs) = do putStrLn f
+printListFiles (f:fs) = do hSetBuffering stdout LineBuffering
+                           putStrLn f
                            printListFiles fs
-                           hSetBuffering stdout LineBuffering
 
 data TreeFile = File FilePath | Dir FilePath [TreeFile]
                 deriving (Show,Eq)
@@ -56,6 +56,16 @@ sameSize x y = do
   sx <- getFileStatus x
   sy <- getFileStatus y
   return $ fileSize sx == fileSize sy
+
+sameContents :: FilePath -> FilePath -> IO Bool
+sameContents x y = do
+  hx <- openFile x ReadMode
+  cx <- BS.hGetContents hx
+  hClose hx
+  hy <- openFile y ReadMode
+  cy <- BS.hGetContents hy
+  hClose hy
+  return $ cx == cy
 
 toDeleteFile :: FilePath -> [FilePath] -> IO [FilePath]
 toDeleteFile _ [] = return []
