@@ -1,3 +1,4 @@
+import System.Environment
 import System.Directory
 import System.FilePath
 import System.Posix.Files
@@ -87,15 +88,17 @@ addSize (f:fs)  = do
 
 main :: IO ()
 main = do
+  dir1:dir2:_ <- getArgs
   hSetBuffering stdout LineBuffering
-  putStrLn $ "Listing files from: " ++ (show dir2)
-  tree1 <- createTree dir2
   putStrLn $ "Listing files from: " ++ (show dir1)
-  tree2 <- createTree dir1
-  putStrLn $ "Calculating files size from: " ++ (show dir2)
-  list1 <- addSize $ listFiles tree1
+  tree1 <- createTree dir1
+  putStrLn $ "Listing files from: " ++ (show dir2)
+  tree2 <- createTree dir2
   putStrLn $ "Calculating files size from: " ++ (show dir1)
+  list1 <- addSize $ listFiles tree1
+  putStrLn $ "Calculating files size from: " ++ (show dir2)
   list2 <- addSize $ listFiles tree2
   putStrLn $ "Matching files..."
   filesToDelete <- evalStateT (toDelete list1 list2) (1,length list2)
   printListFiles filesToDelete
+  mapM_ removeFile filesToDelete
