@@ -4,24 +4,22 @@ import System.Posix.Files
 import System.IO
 import qualified Data.ByteString as BS
 import Control.Monad
-import Control.Parallel
-import Data.List (tails)
 
-dir1 = "/Users/cpa/Desktop/Music"
-dir2 = "/Users/cpa/Desktop/musique"
+dir2 = "/Users/cpa/Desktop/Music"
+dir1 = "/Users/cpa/Desktop/My Music"
 dir3 = "/Users/cpa/test"
 dir4 = "/Users/cpa/fun"
 dir5 = "/Users/cpa/Documents"
 dir6 = "/Users/cpa/testouze"
 
-printListFiles :: [FilePath] -> IO ()
-printListFiles [] = return ()
-printListFiles (f:fs) = do hSetBuffering stdout LineBuffering
-                           putStrLn f
-                           printListFiles fs
-
 data TreeFile = File FilePath | Dir FilePath [TreeFile]
                 deriving (Show,Eq)
+
+printListFiles :: [FilePath] -> IO ()
+printListFiles [] = return ()
+printListFiles (f:fs) = do putStrLn f
+                           printListFiles fs
+
 
 partitionM :: (Monad m) => (a -> m Bool) -> [a] -> m ([a], [a])
 partitionM _ []     =  return ([], [])
@@ -45,56 +43,55 @@ createTree path = do
   cts          <- getDirectoryContents path
   (dirs,files) <- partitionM (\f -> doesDirectoryExist (path </> f)) $ sanitize cts
   treeDirs     <- mapM createTree (map (path </>) dirs)
-  return $ Dir path ([File $ path </> f | f <- files]++treeDirs)
+  return $ Dir path ([File $ path </> f | f <- files] ++ treeDirs)
 
 listFiles :: TreeFile -> [FilePath]
 listFiles (File f) = [f]
 listFiles (Dir d fs) = fs >>= listFiles
 
-sameSize :: FilePath -> FilePath -> IO Bool
-sameSize x y = do
-  sx <- getFileStatus x
-  sy <- getFileStatus y
-  return $ fileSize sx == fileSize sy
-
-sameContents :: FilePath -> FilePath -> IO Bool
-sameContents x y = do
-  hx <- openFile x ReadMode
-  cx <- BS.hGetContents hx
-  hClose hx
-  hy <- openFile y ReadMode
-  cy <- BS.hGetContents hy
-  hClose hy
-  return $ cx == cy
-
-toDeleteFile :: FilePath -> [FilePath] -> IO [FilePath]
+toDeleteFile :: (FilePath,Int) -> [(FilePath,Int)] -> IO [FilePath]
 toDeleteFile _ [] = return []
-toDeleteFile x l = do
-  h   <- openFile x ReadMode
-  cts <- BS.hGetContents h
-  hClose h
-  aux cts x =<< (filterM (sameSize x) l)
-      where aux cts x [] = return []
-            aux cts x (f:fs) = do
-                     h    <- openFile f ReadMode
-                     cts2 <- BS.hGetContents h
-                     hClose h
-                     if cts2 == cts then return [x]
-                     else aux cts x fs
+toDeleteFile (f,fsize) l = do
+  let possibleMatches = [ x | (x,xsize) <- l, xsize == fsize ]
+  --  putStrLn $ (show $ length l - length possibleMatches) ++ " files pruned."
+  if possibleMatches == [] then return [] else do
+      h   <- openFile f ReadMode
+      cts <- BS.hGetContents h
+      hClose h
+      aux cts f possibleMatches
+    where aux cts x [] = return []
+          aux cts x (f:fs) = 
+              do h    <- openFile f ReadMode
+                 cts2 <- BS.hGetContents h
+                 hClose h
+                 if cts2 == cts then return [x]
+                 else aux cts x fs
 
-toDelete :: [FilePath] -> [FilePath] -> Int -> Int -> IO [FilePath]
+toDelete :: [(FilePath,Int)] -> [(FilePath,Int)] -> Int -> Int -> IO [FilePath]
+-- toDelete _ _  200 _             = return []
 toDelete _ []  _ _             = return []
-toDelete list1 (f:fs) cur len  = do 
-  putStrLn (show cur ++ "/" ++ show len ++ ": " ++ show f)
-  let lol = toDeleteFile f list1
-  liftM2 ((++)) (lol) (toDelete list1 fs (cur+1) len)
+toDelete list1 ((f,fsize):fs) cur len  = do 
+  putStrLn (show cur ++ "/" ++ show len ++ ": " ++ f)
+  liftM2 ((++)) (toDeleteFile (f,fsize) list1) (toDelete list1 fs (cur+1) len)
+
+addSize :: [FilePath] -> IO [(FilePath,Int)]
+addSize [] = return []
+addSize (f:fs)  = do
+  sf <- getFileStatus f
+  next <- addSize fs
+  return $ (f,(fromIntegral $ fileSize sf)):next
 
 main :: IO ()
 main = do
+  hSetBuffering stdout LineBuffering
+  putStrLn $ "Listing files from: " ++ (show dir2)
   tree1 <- createTree dir2
+  putStrLn $ "Listing files from: " ++ (show dir1)
   tree2 <- createTree dir1
-  let list1 = listFiles tree1
-      list2 = listFiles tree2
-  l <- toDelete list1 list2 1 (length list2)
-  printListFiles l
---  putStrLn $ (show $ length list1) ++ " " ++ (show $ length list2)
+  putStrLn $ "Calculating files size from: " ++ (show dir2)
+  list1 <- addSize $ listFiles tree1
+  putStrLn $ "Calculating files size from: " ++ (show dir1)
+  list2 <- addSize $ listFiles tree2
+  putStrLn $ "Matching files..."
+  filesToDelete <- toDelete list1 list2 1 (length list2)
+  printListFiles filesToDelete
