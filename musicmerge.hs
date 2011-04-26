@@ -8,13 +8,6 @@ import Control.Monad
 import Control.Monad.Trans
 import Control.Monad.State
 
-dir2 = "/Users/cpa/Desktop/Music"
-dir1 = "/Users/cpa/Desktop/My Music"
-dir3 = "/Users/cpa/test"
-dir4 = "/Users/cpa/fun"
-dir5 = "/Users/cpa/Documents"
-dir6 = "/Users/cpa/testouze"
-
 data TreeFile = File FilePath | Dir FilePath [TreeFile]
                 deriving (Show,Eq)
 
@@ -52,6 +45,7 @@ listFiles :: TreeFile -> [FilePath]
 listFiles (File f) = [f]
 listFiles (Dir d fs) = fs >>= listFiles
 
+-- Matches a file against a list of files
 toDeleteFile :: (FilePath,Int) -> [(FilePath,Int)] -> IO [FilePath]
 toDeleteFile _ [] = return []
 toDeleteFile (f,fsize) l = do
@@ -69,7 +63,7 @@ toDeleteFile (f,fsize) l = do
                  if cts2 == cts then return [x]
                  else aux cts x fs
 
-
+-- Matches a list of files against another
 type FilesState = StateT (Int,Int) IO
 toDelete :: [(FilePath,Int)] -> [(FilePath,Int)] -> FilesState [FilePath]
 toDelete _ [] = return $ return []
